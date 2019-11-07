@@ -1,30 +1,24 @@
 #!/bin/bash
 # This script was adapted from https://github.com/openfaas/cli.openfaas.com/blob/master/get.sh
 
-version=$(curl -sI https://github.com/alexellis/inlets/releases/latest | grep Location | awk -F"/" '{ printf "%s", $NF }' | tr -d '\r')
+export OWNER=inlets
+export REPO=inlets
+export SUCCESS_CMD="$REPO version"
+export BINLOCATION="/usr/local/bin"
+
+version=$(curl -sI https://github.com/$OWNER/$REPO/releases/latest | grep Location | awk -F"/" '{ printf "%s", $NF }' | tr -d '\r')
 
 if [ ! $version ]; then
-    echo "Failed while attempting to install inlets. Please manually install:"
+    echo "Failed while attempting to install $REPO. Please manually install:"
     echo ""
-    echo "1. Open your web browser and go to https://github.com/alexellis/inlets/releases"
-    echo "2. Download the latest release for your platform. Call it 'inlets'."
-    echo "3. chmod +x ./inlets"
-    echo "4. mv ./inlets /usr/local/bin"
+    echo "1. Open your web browser and go to https://github.com/$OWNER/$REPO/releases"
+    echo "2. Download the latest release for your platform. Call it '$REPO'."
+    echo "3. chmod +x ./$REPO"
+    echo "4. mv ./$REPO $BINLOCATION"
     exit 1
 fi
 
 hasCli() {
-
-    has=$(which inlets)
-
-    if [ "$?" = "0" ]; then
-        echo
-        echo "You already have the inlets cli!"
-        export n=1
-        echo "Overwriting in $n seconds.. Press Control+C to cancel."
-        echo
-        sleep $n
-    fi
 
     hasCurl=$(which curl)
     if [ "$?" = "1" ]; then
@@ -38,13 +32,21 @@ getPackage() {
     userid=$(id -u)
 
     suffix=""
+
     case $uname in
     "Darwin")
     suffix="-darwin"
     ;;
+    "MINGW"*)
+    suffix=".exe"
+    BINLOCATION="$HOME/bin"
+    mkdir -p $BINLOCATION
+
+    ;;
     "Linux")
         arch=$(uname -m)
         echo $arch
+
         case $arch in
         "aarch64")
         suffix="-arm64"
@@ -58,20 +60,20 @@ getPackage() {
     ;;
     esac
 
-    targetFile="/tmp/inlets$suffix"
+    targetFile="/tmp/$REPO"
 
     if [ "$userid" != "0" ]; then
-        targetFile="$(pwd)/inlets$suffix"
+        targetFile="$(pwd)/$REPO"
     fi
 
     if [ -e $targetFile ]; then
         rm $targetFile
     fi
 
-    url=https://github.com/alexellis/inlets/releases/download/$version/inlets$suffix
+    url=https://github.com/$OWNER/$REPO/releases/download/$version/$REPO$suffix
     echo "Downloading package $url as $targetFile"
 
-    curl -sSL $url --output $targetFile
+    curl -sSLf $url --output $targetFile
 
     if [ "$?" = "0" ]; then
 
@@ -79,33 +81,47 @@ getPackage() {
 
     echo "Download complete."
 
-        if [ "$userid" != "0" ]; then
+        if [ ! -w "$BINLOCATION" ]; then
 
             echo
-            echo "========================================================="
-            echo "==    As the script was run as a non-root user the     =="
-            echo "==    following commands may need to be run manually   =="
-            echo "========================================================="
+            echo "============================================================"
+            echo "  The script was run as a user who is unable to write"
+            echo "  to $BINLOCATION. To complete the installation the"
+            echo "  following commands may need to be run manually."
+            echo "============================================================"
             echo
-            echo "  sudo cp inlets$suffix /usr/local/bin/inlets"
+            echo "  sudo cp $REPO $BINLOCATION/$REPO"
             echo
 
         else
 
             echo
-            echo "Running as root - Attempting to move inlets to /usr/local/bin"
+            echo "Running with sufficient permissions to attempt to move $REPO to $BINLOCATION"
 
-            mv $targetFile /usr/local/bin/inlets
+            if [ ! -w "$BINLOCATION/$REPO" ] && [ -f "$BINLOCATION/$REPO" ]; then
+
+            echo
+            echo "================================================================"
+            echo "  $BINLOCATION/$REPO already exists and is not writeable"
+            echo "  by the current user.  Please adjust the binary ownership"
+            echo "  or run sh/bash with sudo." 
+            echo "================================================================"
+            echo
+            exit 1
+
+            fi
+
+            mv $targetFile $BINLOCATION/$REPO
 
             if [ "$?" = "0" ]; then
-                echo "New version of inlets installed to /usr/local/bin"
+                echo "New version of $REPO installed to $BINLOCATION"
             fi
 
             if [ -e $targetFile ]; then
                 rm $targetFile
             fi
 
-           inlets --version
+           ${SUCCESS_CMD}
         fi
     fi
 }

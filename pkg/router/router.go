@@ -1,3 +1,6 @@
+// Copyright (c) Inlets Author(s) 2019. All rights reserved.
+// Licensed under the MIT license. See LICENSE file in the project root for full license information.
+
 package router
 
 import (
@@ -8,7 +11,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/alexellis/inlets/pkg/transport"
+	"github.com/inlets/inlets/pkg/transport"
 	"github.com/rancher/remotedialer"
 )
 
@@ -48,7 +51,7 @@ func (r *Router) Lookup(req *http.Request) *Route {
 	r.RLock()
 	defer r.RUnlock()
 
-	targets := r.domains[req.URL.Host]
+	targets := r.domains[req.Host]
 	if len(targets) == 0 {
 		targets = r.domains[""]
 	}

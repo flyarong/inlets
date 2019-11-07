@@ -1,14 +1,19 @@
+// Copyright (c) Inlets Author(s) 2019. All rights reserved.
+// Licensed under the MIT license. See LICENSE file in the project root for full license information.
+
 package server
 
 import (
+	"crypto/subtle"
 	"fmt"
 	"log"
 	"net"
 	"net/http"
+	"sync"
 	"time"
 
-	"github.com/alexellis/inlets/pkg/router"
-	"github.com/alexellis/inlets/pkg/transport"
+	"github.com/inlets/inlets/pkg/router"
+	"github.com/inlets/inlets/pkg/transport"
 	"github.com/rancher/remotedialer"
 	"github.com/twinj/uuid"
 	"k8s.io/apimachinery/pkg/util/proxy"
@@ -16,23 +21,75 @@ import (
 
 // Server for the exit-node of inlets
 type Server struct {
-	Port   int
-	Token  string
+
+	// Port serves data to clients
+	Port int
+
+	// ControlPort represents the tunnel to the inlets client
+	ControlPort int
+
+	// Token is used to authenticate a client
+	Token string
+
 	router router.Router
 	server *remotedialer.Server
+
+	// DisableWrapTransport prevents CORS headers from being striped from responses
+	DisableWrapTransport bool
 }
 
 // Serve traffic
 func (s *Server) Serve() {
-	s.server = remotedialer.New(s.authorized, remotedialer.DefaultErrorWriter)
-	s.router.Server = s.server
+	if s.ControlPort == s.Port {
+		s.server = remotedialer.New(s.authorized, remotedialer.DefaultErrorWriter)
+		s.router.Server = s.server
 
-	http.HandleFunc("/", s.proxy)
-	http.HandleFunc("/tunnel", s.tunnel)
+		http.HandleFunc("/", s.proxy)
+		http.HandleFunc("/tunnel", s.tunnel)
 
-	log.Printf("Listening on :%d\n", s.Port)
-	if err := http.ListenAndServe(fmt.Sprintf(":%d", s.Port), nil); err != nil {
-		log.Fatal(err)
+		log.Printf("Control Plane Listening on :%d\n", s.ControlPort)
+		log.Printf("Data Plane Listening on :%d\n", s.Port)
+
+		if err := http.ListenAndServe(fmt.Sprintf(":%d", s.Port), nil); err != nil {
+			log.Fatal(err)
+		}
+	} else {
+
+		wg := sync.WaitGroup{}
+		wg.Add(1)
+
+		go func() {
+			defer wg.Done()
+
+			controlServer := http.NewServeMux()
+			s.server = remotedialer.New(s.authorized, remotedialer.DefaultErrorWriter)
+			s.router.Server = s.server
+
+			controlServer.HandleFunc("/tunnel", s.tunnel)
+
+			log.Printf("Control Plane Listening on :%d\n", s.ControlPort)
+			if err := http.ListenAndServe(fmt.Sprintf(":%d", s.ControlPort), controlServer); err != nil {
+				log.Fatal(err)
+			}
+
+		}()
+
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+
+			controlServer := http.NewServeMux()
+			controlServer.HandleFunc("/", s.proxy)
+
+			http.HandleFunc("/", s.proxy)
+			log.Printf("Data Plane Listening on :%d\n", s.Port)
+
+			if err := http.ListenAndServe(fmt.Sprintf(":%d", s.Port), controlServer); err != nil {
+				log.Fatal(err)
+			}
+		}()
+
+		wg.Wait()
 	}
 }
 
@@ -56,7 +113,7 @@ func (s *Server) proxy(w http.ResponseWriter, r *http.Request) {
 	u.Host = r.Host
 	u.Scheme = route.Scheme
 
-	httpProxy := proxy.NewUpgradeAwareHandler(&u, route.Transport, true, false, s)
+	httpProxy := proxy.NewUpgradeAwareHandler(&u, route.Transport, !s.DisableWrapTransport, false, s)
 	httpProxy.ServeHTTP(w, r)
 }
 
@@ -72,7 +129,7 @@ func (s *Server) dialerFor(id, host string) remotedialer.Dialer {
 
 func (s *Server) tokenValid(req *http.Request) bool {
 	auth := req.Header.Get("Authorization")
-	return len(s.Token) == 0 || auth == "Bearer "+s.Token
+	return subtle.ConstantTimeCompare([]byte(auth), []byte("Bearer "+s.Token)) == 1
 }
 
 func (s *Server) authorized(req *http.Request) (id string, ok bool, err error) {

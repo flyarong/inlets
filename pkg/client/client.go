@@ -1,3 +1,6 @@
+// Copyright (c) Inlets Author(s) 2019. All rights reserved.
+// Licensed under the MIT license. See LICENSE file in the project root for full license information.
+
 package client
 
 import (
@@ -5,7 +8,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/alexellis/inlets/pkg/transport"
+	"github.com/inlets/inlets/pkg/transport"
 	"github.com/rancher/remotedialer"
 	"github.com/twinj/uuid"
 )
@@ -31,13 +34,12 @@ func (c *Client) Connect() error {
 	headers := http.Header{}
 	headers.Set(transport.InletsHeader, uuid.Formatter(uuid.NewV4(), uuid.FormatHex))
 	for k, v := range c.UpstreamMap {
-		headers.Set(transport.UpstreamHeader, fmt.Sprintf("%s=%s", k, v))
+		headers.Add(transport.UpstreamHeader, fmt.Sprintf("%s=%s", k, v))
 	}
 	if c.Token != "" {
 		headers.Add("Authorization", "Bearer "+c.Token)
 	}
 
-	fmt.Println(headers)
 	url := c.Remote
 	if !strings.HasPrefix(url, "ws") {
 		url = "ws://" + url
